@@ -20,8 +20,13 @@ jobs:
       - name: Install Npcap SDK
         shell: pwsh
         run: |
-          choco install npcap-sdk --no-progress -y
-          "LIBPCAP_LIBDIR=$env:ProgramFiles\\Npcap SDK\\Lib\\x64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $sdk = Join-Path $env:RUNNER_TEMP "npcap-sdk.zip"
+          $root = Join-Path $env:RUNNER_TEMP "npcap-sdk"
+          Invoke-WebRequest -Uri "https://npcap.com/dist/npcap-sdk-1.16.zip" -OutFile $sdk
+          Expand-Archive -Path $sdk -DestinationPath $root -Force
+          $lib = Join-Path $root "npcap-sdk-1.16\Lib\x64"
+          if (-not (Test-Path (Join-Path $lib "wpcap.lib"))) { throw "Npcap SDK library not found at $lib" }
+          "LIBPCAP_LIBDIR=$lib" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Build release binary
         run: cargo build --release --locked
       - name: Package
