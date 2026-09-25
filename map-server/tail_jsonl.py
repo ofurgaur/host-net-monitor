@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -48,6 +49,7 @@ def main():
         handles.append(handle)
 
     pending: list[str] = []
+    chunk_number = 0
     next_flush = time.monotonic() + args.chunk_seconds
     try:
         while True:
@@ -66,11 +68,15 @@ def main():
             if now >= next_flush:
                 if pending:
                     chunk, pending = pending[:args.chunk_lines], pending[args.chunk_lines:]
+                    chunk_number += 1
+                    stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                    print(f"{stamp} send chunk={chunk_number} lines={len(chunk)} pending={len(pending)}", flush=True)
                     try:
                         post(args.url, chunk, args.timeout)
+                        print(f"{stamp} sent chunk={chunk_number} lines={len(chunk)}", flush=True)
                     except Exception as exc:
                         pending = chunk + pending
-                        print(f"post failed for {len(chunk)} lines: {exc}")
+                        print(f"{stamp} send failed chunk={chunk_number} lines={len(chunk)} pending={len(pending)} error={exc}", flush=True)
                 next_flush += args.chunk_seconds
                 if next_flush <= now:
                     next_flush = now + args.chunk_seconds
