@@ -33,3 +33,15 @@ python3 map-server/tail_jsonl.py \
 ```
 
 Use `--start-at-end` to ignore existing records. Without it, existing lines are forwarded first and then the files are followed.
+
+## One-shot JSONL replay
+
+`cat_jsonl.py` reads the selected files once and sends 30 lines every second:
+
+```sh
+python3 map-server/cat_jsonl.py \
+  --file network-flows.jsonl \
+  --file network-ips.jsonl
+```
+
+Use `--chunk-lines` or `--interval` to override those defaults.
