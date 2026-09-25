@@ -32,9 +32,9 @@ def main():
     parser.add_argument("--start-at-end", action="store_true",
                         help="ignore existing records and only send new lines")
     parser.add_argument("--chunk-seconds", type=float, default=2.0,
-                        help="flush buffered lines at this interval (default: 2 seconds)")
+                        help="send one chunk at this interval (default: 2 seconds)")
     parser.add_argument("--chunk-lines", type=int, default=500,
-                        help="flush early after this many lines (default: 500)")
+                        help="maximum lines per sent chunk (default: 500)")
     parser.add_argument("--timeout", type=float, default=10)
     args = parser.parse_args()
     if args.chunk_seconds <= 0 or args.chunk_lines <= 0:
@@ -60,20 +60,21 @@ def main():
                     found = True
                     if line.strip():
                         pending.append(line)
-                    if len(pending) >= args.chunk_lines:
-                        break
-                if len(pending) >= args.chunk_lines:
-                    break
+
 
             now = time.monotonic()
-            if pending and (len(pending) >= args.chunk_lines or now >= next_flush):
-                chunk, pending = pending, []
-                try:
-                    post(args.url, chunk, args.timeout)
-                except Exception as exc:
-                    print(f"post failed for {len(chunk)} lines: {exc}")
-                next_flush = time.monotonic() + args.chunk_seconds
-            elif not found:
+            if now >= next_flush:
+                if pending:
+                    chunk, pending = pending[:args.chunk_lines], pending[args.chunk_lines:]
+                    try:
+                        post(args.url, chunk, args.timeout)
+                    except Exception as exc:
+                        pending = chunk + pending
+                        print(f"post failed for {len(chunk)} lines: {exc}")
+                next_flush += args.chunk_seconds
+                if next_flush <= now:
+                    next_flush = now + args.chunk_seconds
+            if not found:
                 time.sleep(min(0.25, max(0.01, next_flush - now)))
     finally:
         for handle in handles:
