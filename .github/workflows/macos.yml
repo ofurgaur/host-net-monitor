@@ -1,0 +1,29 @@
+name: macOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release binary
+        run: cargo build --release --locked
+      - name: Package
+        run: |
+          mkdir -p package/packaging
+          cp target/release/host-net-monitor package/
+          cp config.macos.example.yaml MACOS.md README.md package/
+          cp packaging/org.host-net-monitor.plist packaging/install-macos.sh package/packaging/
+          tar -czf host-net-monitor-macos-${{ runner.arch }}.tar.gz -C package .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-net-monitor-macos-${{ runner.arch }}
+          path: host-net-monitor-macos-*.tar.gz

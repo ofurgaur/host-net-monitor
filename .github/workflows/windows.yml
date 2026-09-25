@@ -1,0 +1,39 @@
+name: Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  RUSTFLAGS: "-C target-feature=+crt-static"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Npcap SDK
+        shell: pwsh
+        run: |
+          choco install npcap-sdk --no-progress -y
+          "LIBPCAP_LIBDIR=$env:ProgramFiles\\Npcap SDK\\Lib\\x64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Build release binary
+        run: cargo build --release --locked
+      - name: Package
+        shell: pwsh
+        run: |
+          $p = "package"
+          New-Item -ItemType Directory -Force "$p/packaging" | Out-Null
+          Copy-Item target/release/host-net-monitor.exe "$p/"
+          Copy-Item config.windows.example.yaml,WINDOWS.md,README.md "$p/"
+          Copy-Item packaging/host-net-monitor.winsw.xml,packaging/install-windows.ps1 "$p/packaging/"
+          Compress-Archive -Path "$p/*" -DestinationPath host-net-monitor-windows-x86_64.zip -Force
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-net-monitor-windows-x86_64
+          path: host-net-monitor-windows-x86_64.zip

@@ -1,0 +1,61 @@
+name: Release artifacts
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: linux-x86_64
+            binary: host-net-monitor
+          - os: macos-latest
+            artifact: macos-arm64
+            binary: host-net-monitor
+          - os: windows-latest
+            artifact: windows-x86_64
+            binary: host-net-monitor.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y libpcap-dev
+      - name: Install Windows Npcap SDK
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install npcap-sdk --no-progress -y
+          "LIBPCAP_LIBDIR=$env:ProgramFiles\\Npcap SDK\\Lib\\x64" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - run: cargo build --release --locked
+      - name: Archive Unix package
+        if: runner.os != 'Windows'
+        run: tar -czf host-net-monitor-${{ matrix.artifact }}.tar.gz -C target/release ${{ matrix.binary }}
+      - name: Archive Windows package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path "target/release/${{ matrix.binary }}" -DestinationPath "host-net-monitor-${{ matrix.artifact }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: host-net-monitor-${{ matrix.artifact }}.*
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*
