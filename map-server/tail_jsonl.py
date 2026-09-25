@@ -34,8 +34,8 @@ def main():
                         help="ignore existing records and only send new lines")
     parser.add_argument("--chunk-seconds", type=float, default=2.0,
                         help="send one chunk at this interval (default: 2 seconds)")
-    parser.add_argument("--chunk-lines", type=int, default=500,
-                        help="maximum lines per sent chunk (default: 500)")
+    parser.add_argument("--chunk-lines", type=int, default=10,
+                        help="maximum lines per sent chunk (default: 10)")
     parser.add_argument("--timeout", type=float, default=10)
     args = parser.parse_args()
     if args.chunk_seconds <= 0 or args.chunk_lines <= 0:

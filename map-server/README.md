@@ -26,7 +26,8 @@ python3 map-server/tail_jsonl.py \
   --file network-flows.jsonl \
   --file network-ips.jsonl \
   --start-at-end \
-  --chunk-seconds 2
+  --chunk-seconds 2 \
+  --chunk-lines 10
 ```
 
 Use `--start-at-end` to ignore existing records. Without it, existing lines are forwarded first and then the files are followed.
