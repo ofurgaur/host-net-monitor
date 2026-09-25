@@ -34,12 +34,12 @@ def main():
                         help="ignore existing records and only send new lines")
     parser.add_argument("--chunk-seconds", type=float, default=2.0,
                         help="send one chunk at this interval (default: 2 seconds)")
-    parser.add_argument("--chunk-lines", type=int, default=10,
-                        help="maximum lines per sent chunk (default: 10)")
+    parser.add_argument("--window-seconds", type=float, default=30.0,
+                        help="source window represented by each send cycle (default: 30 seconds)")
     parser.add_argument("--timeout", type=float, default=10)
     args = parser.parse_args()
-    if args.chunk_seconds <= 0 or args.chunk_lines <= 0:
-        parser.error("chunk-seconds and chunk-lines must be positive")
+    if args.chunk_seconds <= 0 or args.window_seconds <= 0:
+        parser.error("chunk-seconds and window-seconds must be positive")
 
     handles = []
     for path in args.files:
@@ -67,10 +67,12 @@ def main():
             now = time.monotonic()
             if now >= next_flush:
                 if pending:
-                    chunk, pending = pending[:args.chunk_lines], pending[args.chunk_lines:]
+                    slots = max(1, int(args.window_seconds / args.chunk_seconds))
+                    chunk_size = max(1, (len(pending) + slots - 1) // slots)
+                    chunk, pending = pending[:chunk_size], pending[chunk_size:]
                     chunk_number += 1
                     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-                    print(f"{stamp} send chunk={chunk_number} lines={len(chunk)} pending={len(pending)}", flush=True)
+                    print(f"{stamp} send chunk={chunk_number} lines={len(chunk)} pending={len(pending)} slots={slots}", flush=True)
                     try:
                         post(args.url, chunk, args.timeout)
                         print(f"{stamp} sent chunk={chunk_number} lines={len(chunk)}", flush=True)

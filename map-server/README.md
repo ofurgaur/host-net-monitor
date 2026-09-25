@@ -19,7 +19,7 @@ The API stores each JSON object in the configured Redis stream (`host-net-monito
 
 ## Experimental JSONL tailer
 
-This helper follows the monitor's files and posts new lines to Redis through the map server. It splits individual JSONL lines into chunks and sends exactly one chunk every two seconds, so it works even though the monitor writes a new window only every 30 seconds. It is deliberately separate from the server so production deployments can send events through another collector later.
+This helper follows the monitor's files and posts new lines to Redis through the map server. It counts the pending JSONL lines, automatically divides them across the 30-second source window, and sends exactly one chunk every two seconds, so it works even though the monitor writes a new window only every 30 seconds. It is deliberately separate from the server so production deployments can send events through another collector later.
 
 ```sh
 python3 map-server/tail_jsonl.py \
@@ -27,7 +27,7 @@ python3 map-server/tail_jsonl.py \
   --file network-ips.jsonl \
   --start-at-end \
   --chunk-seconds 2 \
-  --chunk-lines 10
+  --window-seconds 30
 ```
 
 Use `--start-at-end` to ignore existing records. Without it, existing lines are forwarded first and then the files are followed.
