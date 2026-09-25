@@ -74,8 +74,9 @@ def main():
                 next_flush += args.chunk_seconds
                 if next_flush <= now:
                     next_flush = now + args.chunk_seconds
-            if not found:
-                time.sleep(min(0.25, max(0.01, next_flush - now)))
+            sleep_for = next_flush - time.monotonic()
+            if sleep_for > 0:
+                time.sleep(min(0.25, sleep_for))
     finally:
         for handle in handles:
             handle.close()
