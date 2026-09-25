@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import threading
 from collections import defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 try:
     import redis
+    from websockets.sync.server import serve as websocket_serve
 except ImportError as exc:  # pragma: no cover - exercised by startup
     redis = None
+    websocket_serve = None
     REDIS_IMPORT_ERROR = exc
 
 INDEX_HTML = r"""<!doctype html>
@@ -25,11 +28,11 @@ INDEX_HTML = r"""<!doctype html>
 <main><div id="map"></div><section class="side"><div class="toolbar"><label>Display <select id="display"><option value="shade">Activity shading</option><option value="lines">Weighted lines</option></select></label><button id="refresh">Refresh</button><span id="status"></span></div><table><thead><tr><th>City</th><th>IP</th><th>Reputation</th><th class="num">Bandwidth</th><th class="num">Flows</th></tr></thead><tbody id="rows"></tbody></table><div id="empty" class="empty" hidden>No enriched network activity found.</div></section></main>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script><script>
 const map=L.map('map',{worldCopyJump:true}).setView([25,0],2);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:18}).addTo(map);const layer=L.layerGroup().addTo(map);let mode='shade';
-const home=__HOME__; const fmtBytes=n=>{if(n<1024)return `${n} B`;if(n<1048576)return `${(n/1024).toFixed(1)} KB`;if(n<1073741824)return `${(n/1048576).toFixed(1)} MB`;return `${(n/1073741824).toFixed(1)} GB`};const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const home=__HOME__;const websocketUrl=__WS__; const fmtBytes=n=>{if(n<1024)return `${n} B`;if(n<1048576)return `${(n/1024).toFixed(1)} KB`;if(n<1073741824)return `${(n/1048576).toFixed(1)} MB`;return `${(n/1073741824).toFixed(1)} GB`};const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function color(v,max){const x=Math.max(0,Math.min(1,v/(max||1)));return `hsl(${Math.round(215-205*x)} 90% ${Math.round(65-20*x)}%)`}
 function curvedPath(start,end){const dx=end[1]-start[1],dy=end[0]-start[0],length=Math.max(1,Math.hypot(dx,dy));const bend=(Math.random()-.5)*Math.min(35,length*.45),nx=-dy/length,ny=dx/length;const control=[(start[0]+end[0])/2+nx*bend,(start[1]+end[1])/2+ny*bend];const points=[];for(let i=0;i<=24;i++){const t=i/24,u=1-t;points.push([u*u*start[0]+2*u*t*control[0]+t*t*end[0],u*u*start[1]+2*u*t*control[1]+t*t*end[1]])}return points}
 function render(d){layer.clearLayers();document.querySelector('#cities').textContent=d.cities.length;document.querySelector('#flows').textContent=d.total_flow_count.toLocaleString();document.querySelector('#bytes').textContent=fmtBytes(d.total_bytes);document.querySelector('#updated').textContent=d.updated||'—';const max=Math.max(...d.cities.map(x=>x.metric),1);for(const c of d.cities){if(c.latitude==null||c.longitude==null)continue;const col=color(c.metric,max), radius=mode==='shade'?Math.max(8,Math.min(42,8+34*c.metric/max)):Math.max(5,Math.min(22,5+17*c.metric/max));const marker=L.circle([c.latitude,c.longitude],{radius:radius*3000,color:col,weight:2,fillColor:col,fillOpacity:mode==='shade'?.62:.2});marker.bindPopup(`<b>${esc(c.city||'Unknown city')}</b><br>${esc(c.country||'')}<br>${fmtBytes(c.bytes)} · ${c.flow_count.toLocaleString()} flows`);marker.addTo(layer);const ageSeconds=c.last_seen?Math.max(0,(Date.now()-Date.parse(c.last_seen))/1000):0;const ttl=3+2*(c.metric/(max||1));if(c.last_seen&&!Number.isNaN(ageSeconds)&&ageSeconds>ttl)continue;const line=L.polyline(curvedPath(home,[c.latitude,c.longitude]),{color:col,weight:mode==='lines'?Math.max(1,Math.min(12,1+10*c.metric/max)):Math.max(1,Math.min(4,1+3*c.metric/max)),opacity:mode==='lines'?.82:.32});line.bindTooltip(`${esc(c.city||'Unknown city')}: ${fmtBytes(c.bytes)} / ${c.flow_count} flows`);line.addTo(layer);if(c.last_seen&&!Number.isNaN(ageSeconds))window.setTimeout(()=>{if(layer.hasLayer(line))layer.removeLayer(line)},Math.max(0,(ttl-ageSeconds)*1000))}const rows=document.querySelector('#rows');rows.innerHTML=d.rows.map(r=>`<tr><td><div class="city">${esc(r.city||'Unknown')}</div><div class="country">${esc(r.country||'')}</div></td><td><div>${esc(r.ip)}</div><div class="sub">${esc(r.timestamp||'')}</div></td><td class="rep">${esc(r.reputation||'—')}</td><td class="num">${fmtBytes(r.bytes)}</td><td class="num">${r.flow_count.toLocaleString()}</td></tr>`).join('');document.querySelector('#empty').hidden=d.rows.length>0}
-async function load(){const s=document.querySelector('#status');s.textContent='Loading…';try{const r=await fetch('/api/activity?limit=5000',{cache:'no-store'});if(!r.ok)throw Error(await r.text());render(await r.json());s.textContent='Live';}catch(e){s.textContent='Error';console.error(e)}}document.querySelector('#display').onchange=e=>{mode=e.target.value;load()};document.querySelector('#refresh').onclick=load;load();setInterval(load,5000);
+async function load(){const s=document.querySelector('#status');s.textContent='Loading…';try{const r=await fetch('/api/activity?limit=5000',{cache:'no-store'});if(!r.ok)throw Error(await r.text());render(await r.json());s.textContent='Live';}catch(e){s.textContent='Error';console.error(e)}}function connect(){if(!window.WebSocket){load();setInterval(load,5000);return}const ws=new WebSocket(websocketUrl);ws.onopen=()=>document.querySelector('#status').textContent='Live';ws.onmessage=e=>{try{const message=JSON.parse(e.data);if(message.type==='activity')render(message.data)}catch(err){console.error(err)}};ws.onerror=()=>document.querySelector('#status').textContent='Polling';ws.onclose=()=>setTimeout(connect,3000)}document.querySelector('#display').onchange=e=>{mode=e.target.value;load()};document.querySelector('#refresh').onclick=load;load();connect();
 const legend=L.control({position:'bottomright'});legend.onAdd=()=>{const d=L.DomUtil.create('div','legend');d.innerHTML='<b>Activity</b><br><span class="swatch" style="background:#34c7eb"></span>low<br><span class="swatch" style="background:#f2d33b"></span>medium<br><span class="swatch" style="background:#f35b4f"></span>high';return d};legend.addTo(map);
 </script></body></html>"""
 
@@ -98,6 +101,32 @@ def read_stream(client, stream: str, limit: int) -> list[dict]:
     return rows
 
 
+class ActivityBroadcaster:
+    def __init__(self):
+        self.clients = set()
+        self.lock = threading.Lock()
+
+    def handler(self, connection):
+        with self.lock:
+            self.clients.add(connection)
+        try:
+            connection.wait_closed()
+        finally:
+            with self.lock:
+                self.clients.discard(connection)
+
+    def publish(self, data):
+        message = json.dumps({"type": "activity", "data": data}, separators=(",", ":"))
+        with self.lock:
+            clients = list(self.clients)
+        for connection in clients:
+            try:
+                connection.send(message)
+            except Exception:
+                with self.lock:
+                    self.clients.discard(connection)
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "HostNetMap/2.0"
 
@@ -125,6 +154,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(value, dict): raise ValueError("each line must be a JSON object")
                 self.server.redis.xadd(self.server.stream, {"payload": json.dumps(value, separators=(",", ":"))}, maxlen=self.server.max_stream_length, approximate=True)
                 accepted += 1
+            if accepted:
+                self.server.broadcaster.publish(aggregate(read_stream(self.server.redis, self.server.stream, self.server.limit)))
             self._send_json(202, {"accepted": accepted, "stream": self.server.stream})
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             self._send_json(400, {"error": str(exc)})
@@ -141,7 +172,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as exc: self._send_json(503, {"error": f"redis read failed: {exc}"})
             return
         if parsed.path in ("/", "/index.html"):
-            body = INDEX_HTML.replace("__HOME__", json.dumps([self.server.home_lat, self.server.home_lon])).encode()
+            body = INDEX_HTML.replace("__HOME__", json.dumps([self.server.home_lat, self.server.home_lon])).replace("__WS__", json.dumps(self.server.websocket_url)).encode()
             self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
         self.send_error(404)
 
@@ -154,16 +185,24 @@ def main():
     parser.add_argument("--redis-url", default="redis://127.0.0.1:6379/0", help="Redis URL (default: redis://127.0.0.1:6379/0)")
     parser.add_argument("--redis-stream", default="host-net-monitor:events")
     parser.add_argument("--redis-maxlen", type=int, default=100000)
-    parser.add_argument("--host", default="127.0.0.1"); parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--host", default="127.0.0.1"); parser.add_argument("--port", type=int, default=8080); parser.add_argument("--ws-port", type=int, default=8081, help="WebSocket port (default: HTTP port + 1)")
     parser.add_argument("--home-lat", type=float, default=64.1466); parser.add_argument("--home-lon", type=float, default=-21.9426); parser.add_argument("--limit", type=int, default=5000)
     args = parser.parse_args()
-    if redis is None: parser.error(f"install map-server/requirements.txt ({REDIS_IMPORT_ERROR})")
+    if args.ws_port == 8081 and args.port != 8080:
+        args.ws_port = args.port + 1
+    if redis is None or websocket_serve is None: parser.error(f"install map-server/requirements.txt ({REDIS_IMPORT_ERROR})")
     client = redis.Redis.from_url(args.redis_url)
     try: client.ping()
     except Exception as exc: parser.error(f"cannot connect to Redis at {args.redis_url}: {exc}")
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    server.redis = client; server.stream = args.redis_stream; server.max_stream_length = max(100, args.redis_maxlen); server.home_lat = args.home_lat; server.home_lon = args.home_lon; server.limit = max(1, min(10000, args.limit)); server.max_body_bytes = 8 * 1024 * 1024
-    print(f"Map server listening on http://{args.host}:{args.port} (Redis stream {args.redis_stream})")
+    server.redis = client; server.stream = args.redis_stream; server.max_stream_length = max(100, args.redis_maxlen); server.home_lat = args.home_lat; server.home_lon = args.home_lon; server.limit = max(1, min(10000, args.limit)); server.max_body_bytes = 8 * 1024 * 1024; server.broadcaster = ActivityBroadcaster(); server.websocket_url = f"ws://{args.host}:{args.ws_port}/ws"
+    def run_websocket_server():
+        with websocket_serve(server.broadcaster.handler, args.host, args.ws_port) as websocket_server:
+            websocket_server.serve_forever()
+
+    websocket_thread = threading.Thread(target=run_websocket_server, daemon=True)
+    websocket_thread.start()
+    print(f"Map server listening on http://{args.host}:{args.port} (WebSocket ws://{args.host}:{args.ws_port}/ws, Redis stream {args.redis_stream})")
     server.serve_forever()
 
 

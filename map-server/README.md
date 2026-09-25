@@ -4,7 +4,9 @@ The map server uses a Redis stream as its only data source. It does not read the
 
 ```sh
 python3 -m pip install -r map-server/requirements.txt
-python3 map-server/AttackMapServer.py --redis-url redis://127.0.0.1:6379/0
+python3 map-server/AttackMapServer.py \
+  --redis-url redis://127.0.0.1:6379/0 \
+  --ws-port 8081
 ```
 
 Post one or more JSONL records to the ingestion API:
@@ -15,7 +17,7 @@ curl -X POST -H 'Content-Type: application/x-ndjson' \
   http://127.0.0.1:8080/api/events
 ```
 
-The API stores each JSON object in the configured Redis stream (`host-net-monitor:events` by default). The browser polls `/api/activity`, which aggregates the recent stream records by city and displays bandwidth, flow count, IP, and reputation. Activity shading is the default map view; weighted lines can be selected in the UI.
+The API stores each JSON object in the configured Redis stream (`host-net-monitor:events` by default). The browser opens a WebSocket on port 8081 by default and receives an activity update after each accepted POST. `/api/activity` remains available for an initial snapshot and manual refresh; it aggregates recent stream records by city and displays bandwidth, flow count, IP, and reputation. Activity shading is the default map view; weighted lines can be selected in the UI.
 
 ## Experimental JSONL tailer
 
