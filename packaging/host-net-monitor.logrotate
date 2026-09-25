@@ -1,0 +1,10 @@
+/var/log/host-net-monitor/flows.jsonl /var/log/host-net-monitor/ips.jsonl {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 host-net-monitor host-net-monitor
+    su host-net-monitor host-net-monitor
+}

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>org.host-net-monitor.reputation</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Library/Application Support/HostNetMonitor/.venv-reputation/bin/python</string>
+        <string>/Library/Application Support/HostNetMonitor/tools/reputation/update.py</string>
+        <string>--config</string>
+        <string>/Library/Application Support/HostNetMonitor/threat-reputation.config.json</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Library/Application Support/HostNetMonitor</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>/var/log/host-net-monitor/reputation-updater.log</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/host-net-monitor/reputation-updater.log</string>
+</dict>
+</plist>

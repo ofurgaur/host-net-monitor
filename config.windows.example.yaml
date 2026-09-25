@@ -1,0 +1,36 @@
+capture:
+  # Run host-net-monitor.exe list-interfaces and select one Npcap adapter.
+  # Prefer the adapter carrying the traffic you want to measure.
+  interfaces: ["\\Device\\NPF_{ADAPTER-GUID}"]
+  promiscuous: false
+
+aggregation:
+  interval_seconds: 30
+  max_flows: 100000
+  event_queue_capacity: 8192
+  output_queue_capacity: 4
+
+ignored_networks:
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+  - 127.0.0.0/8
+  - 169.254.0.0/16
+  - 224.0.0.0/4
+  - ::1/128
+  - fc00::/7
+  - fe80::/10
+  - ff00::/8
+
+output:
+  type: jsonl
+  path: C:\ProgramData\HostNetMonitor\flows.jsonl
+  ip_path: C:\ProgramData\HostNetMonitor\ips.jsonl
+
+enrichment:
+  enabled: false
+  database_path: C:\ProgramData\HostNetMonitor\mmdb\IP2LOCATION-LITE-DB11.MMDB
+
+reputation:
+  enabled: false
+  database_path: C:\ProgramData\HostNetMonitor\mmdb\threat-reputation.mmdb

@@ -1,0 +1,18 @@
+[Unit]
+Description=Update host network monitor threat reputation MMDB
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=host-net-monitor
+Group=host-net-monitor
+WorkingDirectory=/var/lib/host-net-monitor
+ExecStart=/var/lib/host-net-monitor/.venv-reputation/bin/python /var/lib/host-net-monitor/tools/reputation/update.py --config /var/lib/host-net-monitor/threat-reputation.config.json
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/host-net-monitor/mmdb /var/lib/host-net-monitor/reputation-updater.log
+UMask=0027
+

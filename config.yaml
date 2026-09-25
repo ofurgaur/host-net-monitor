@@ -1,0 +1,38 @@
+capture:
+  # Run `host-net-monitor list-interfaces` and select one physical or VPN device.
+  interfaces: [wlan0]
+  promiscuous: false
+
+aggregation:
+  interval_seconds: 30
+  max_flows: 100000
+  event_queue_capacity: 8192
+  output_queue_capacity: 4
+
+# Built-in exclusions are listed explicitly for reference; add your own CIDRs here.
+# Removing a built-in range from this list does not disable its exclusion.
+ignored_networks:
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+  - 127.0.0.0/8
+  - 169.254.0.0/16
+  - 224.0.0.0/4
+  - ::1/128
+  - fc00::/7
+  - fe80::/10
+  - ff00::/8
+
+output:
+  type: jsonl
+  path: ./network-flows.jsonl
+  ip_path: ./network-ips.jsonl
+
+# Local IP geolocation for both logs. Set false to disable without loading the MMDB.
+enrichment:
+  enabled: true
+  database_path: mmdb/IP2LOCATION-LITE-DB11.MMDB
+
+reputation:
+  enabled: true
+  database_path: mmdb/threat-reputation.mmdb

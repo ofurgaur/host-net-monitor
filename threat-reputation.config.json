@@ -1,0 +1,28 @@
+{
+  "output": "mmdb/threat-reputation.mmdb",
+  "cache_directory": "mmdb/reputation-cache",
+  "timeout_seconds": 30,
+  "max_download_bytes": 20971520,
+  "sources": [
+    {
+      "name": "feodo_recommended",
+      "enabled": true,
+      "url": "https://feodotracker.abuse.ch/downloads/ipblocklist_recommended.json",
+      "format": "feodo_json",
+      "category": "botnet_c2",
+      "refresh_seconds": 900,
+      "max_age_seconds": 3600,
+      "allow_empty": true
+    },
+    {
+      "name": "firehol_level1",
+      "enabled": true,
+      "url": "https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset",
+      "format": "netset",
+      "category": "aggregated_blocklist",
+      "refresh_seconds": 86400,
+      "max_age_seconds": 172800,
+      "allow_empty": false
+    }
+  ]
+}

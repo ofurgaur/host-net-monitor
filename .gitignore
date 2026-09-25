@@ -1,0 +1,7 @@
+/target/
+*.jsonl
+/.venv-reputation/
+/mmdb/reputation-cache/
+/mmdb/threat-reputation.mmdb*
+/mmdb/
+__pycache__/

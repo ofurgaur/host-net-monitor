@@ -1,0 +1,33 @@
+[Unit]
+Description=Host external endpoint network monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=host-net-monitor
+Group=host-net-monitor
+ExecStart=/usr/local/bin/host-net-monitor run --config /etc/host-net-monitor/config.yaml
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+LogsDirectory=host-net-monitor
+LogsDirectoryMode=0750
+UMask=0027
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

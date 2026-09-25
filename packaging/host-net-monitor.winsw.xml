@@ -1,0 +1,14 @@
+<service>
+  <id>host-net-monitor</id>
+  <name>Host Network Monitor</name>
+  <description>Host-scoped external endpoint traffic monitor using Npcap.</description>
+  <executable>%BASE%\host-net-monitor-rust.exe</executable>
+  <arguments>run --config "%BASE%\config.yaml"</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <startmode>Automatic</startmode>
+  <stoptimeout>30sec</stoptimeout>
+  <onfailure action="restart" delay="10 sec" />
+  <log mode="roll-by-time">
+    <pattern>yyyyMMdd</pattern>
+  </log>
+</service>

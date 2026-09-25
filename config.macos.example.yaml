@@ -1,0 +1,38 @@
+capture:
+  # Confirm with `host-net-monitor list-interfaces`; Wi-Fi is often en0.
+  # Select a single utun interface instead to observe VPN traffic inside the tunnel.
+  interfaces: [en0]
+  promiscuous: false
+
+aggregation:
+  interval_seconds: 30
+  max_flows: 100000
+  event_queue_capacity: 8192
+  output_queue_capacity: 4
+
+# Add private or public CIDRs to exclude. Built-in exclusions remain active.
+ignored_networks:
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+  - 127.0.0.0/8
+  - 169.254.0.0/16
+  - 224.0.0.0/4
+  - ::1/128
+  - fc00::/7
+  - fe80::/10
+  - ff00::/8
+
+output:
+  type: jsonl
+  path: /var/log/host-net-monitor/flows.jsonl
+  ip_path: /var/log/host-net-monitor/ips.jsonl
+
+enrichment:
+  enabled: false
+  # Relative to the config folder, including when installed as a LaunchDaemon.
+  database_path: mmdb/IP2LOCATION-LITE-DB11.MMDB
+
+reputation:
+  enabled: false
+  database_path: mmdb/threat-reputation.mmdb
