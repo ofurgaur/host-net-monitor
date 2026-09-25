@@ -8,7 +8,7 @@ REPUTATION_REQUIREMENTS := tools/reputation/requirements.txt
 REPUTATION_CONFIG ?= threat-reputation.config.json
 
 .PHONY: help build release test lint check fmt reputation reputation-install reputation-lookup \
-	reputation-test check-config list-interfaces package-macos package-windows clean
+	reputation-test check-config list-interfaces map-server package-macos package-windows clean
 
 help:
 	@printf '%s\n' \
@@ -22,6 +22,7 @@ help:
 		'make reputation-lookup IP=8.8.8.8  Query the reputation database' \
 		'make check-config CONFIG=config.yaml  Validate configuration' \
 		'make list-interfaces    List capture interfaces' \
+		'make map-server         Serve the live network activity map' \
 		'make package-macos      Build and archive a macOS package' \
 		'make package-windows    Build and archive a Windows package' \
 		'make clean              Remove generated build and updater files'
@@ -66,6 +67,9 @@ check-config:
 
 list-interfaces:
 	$(CARGO) run --locked -- list-interfaces
+
+map-server:
+	$(PYTHON) map-server/AttackMapServer.py --flow-log network-flows.jsonl --ip-log network-ips.jsonl
 
 package-macos:
 	@test "$$(uname -s)" = Darwin || (printf '%s\n' 'package-macos must run on macOS' >&2; exit 2)
