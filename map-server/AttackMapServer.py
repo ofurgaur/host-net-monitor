@@ -11,10 +11,12 @@ from urllib.parse import parse_qs, urlparse
 
 try:
     import redis
+    from websockets.exceptions import ConnectionClosed
     from websockets.sync.server import serve as websocket_serve
 except ImportError as exc:  # pragma: no cover - exercised by startup
     redis = None
     websocket_serve = None
+    ConnectionClosed = Exception
     REDIS_IMPORT_ERROR = exc
 
 INDEX_HTML = r"""<!doctype html>
@@ -110,7 +112,12 @@ class ActivityBroadcaster:
         with self.lock:
             self.clients.add(connection)
         try:
-            connection.wait_closed()
+            while True:
+                connection.recv()
+        except ConnectionClosed:
+            pass
+        except Exception:
+            pass
         finally:
             with self.lock:
                 self.clients.discard(connection)
