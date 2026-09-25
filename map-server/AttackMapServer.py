@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
-"""Live map server for host-net-monitor network JSONL output.
-
-The server reads flow and per-IP JSONL files on every API request, so it can
-follow files that are being appended by host-net-monitor without a database.
-"""
+"""Redis-backed live map server for host-net-monitor activity."""
 from __future__ import annotations
 
 import argparse
 import json
-import math
-from collections import defaultdict, deque
-from datetime import datetime, timezone
+from collections import defaultdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+try:
+    import redis
+except ImportError as exc:  # pragma: no cover - exercised by startup
+    redis = None
+    REDIS_IMPORT_ERROR = exc
 
 INDEX_HTML = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -43,40 +41,22 @@ def number(item, *keys):
     return 0
 
 
-def read_rows(path: Path, limit: int) -> list[dict]:
-    if not path.exists():
-        return []
-    rows: deque[dict] = deque(maxlen=limit)
-    try:
-        with path.open(encoding="utf-8", errors="replace") as handle:
-            for line in handle:
-                try:
-                    value = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(value, dict):
-                    rows.append(value)
-    except OSError:
-        return []
-    return list(rows)
-
-
 def city_name(item: dict) -> str:
     geo = item.get("geo") or {}
     return str(geo.get("city_name") or geo.get("city") or "Unknown city")
 
 
-def aggregate(flow_path: Path, ip_path: Path, limit: int) -> dict:
-    flow_rows = read_rows(flow_path, limit)
-    ip_rows = read_rows(ip_path, limit)
+def aggregate(rows: list[dict]) -> dict:
     cities: dict[tuple[str, str], dict] = defaultdict(lambda: {"flow_count": 0, "bytes": 0, "latitude": None, "longitude": None})
-    for item in flow_rows:
+    for item in rows:
         geo = item.get("geo") or {}
         lat, lon = geo.get("latitude"), geo.get("longitude")
         if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
             continue
         key = (city_name(item), str(geo.get("country_name") or geo.get("country_code") or ""))
-        out = cities[key]; out["flow_count"] += number(item, "flow_count", "flows", "flowcount"); out["bytes"] += number(item, "flow_byte_sum", "bytes_count", "bytes", "byte_count")
+        out = cities[key]
+        out["flow_count"] += number(item, "flow_count", "flows", "flowcount")
+        out["bytes"] += number(item, "flow_byte_sum", "bytes_count", "bytes", "byte_count")
         out["latitude"], out["longitude"] = float(lat), float(lon)
     city_list = []
     for (city, country), value in cities.items():
@@ -84,8 +64,9 @@ def aggregate(flow_path: Path, ip_path: Path, limit: int) -> dict:
         city_list.append(value)
     city_list.sort(key=lambda x: (x["metric"], x["flow_count"]), reverse=True)
     row_items = []
-    for item in reversed(ip_rows):
-        geo = item.get("geo") or {}; rep = item.get("reputation") or {}
+    for item in reversed(rows):
+        geo = item.get("geo") or {}
+        rep = item.get("reputation") or {}
         matches = rep.get("matches") if isinstance(rep, dict) else None
         if isinstance(matches, list):
             reputation = ", ".join(str(m.get("category") or m.get("source") or "match") for m in matches if isinstance(m, dict))
@@ -93,31 +74,93 @@ def aggregate(flow_path: Path, ip_path: Path, limit: int) -> dict:
             reputation = str(rep.get("status") or "") if isinstance(rep, dict) else ""
         row_items.append({"city": city_name(item), "country": str(geo.get("country_name") or geo.get("country_code") or ""), "ip": str(item.get("external_ip") or item.get("ip") or "—"), "timestamp": str(item.get("timestamp") or ""), "bytes": number(item, "flow_byte_sum", "bytes_count", "bytes", "byte_count"), "flow_count": number(item, "flow_count", "flows", "flowcount"), "reputation": reputation})
     row_items.sort(key=lambda x: (x["bytes"], x["flow_count"]), reverse=True)
-    latest = max((x.get("timestamp", "") for x in ip_rows + flow_rows), default="")
-    return {"updated": latest, "total_flow_count": sum(x["flow_count"] for x in city_list), "total_bytes": sum(x["bytes"] for x in city_list), "cities": city_list, "rows": row_items[:limit]}
+    latest = max((x.get("timestamp", "") for x in rows), default="")
+    return {"updated": latest, "total_flow_count": sum(x["flow_count"] for x in city_list), "total_bytes": sum(x["bytes"] for x in city_list), "cities": city_list, "rows": row_items}
+
+
+def read_stream(client, stream: str, limit: int) -> list[dict]:
+    entries = client.xrevrange(stream, count=limit)
+    rows = []
+    for _entry_id, fields in reversed(entries):
+        payload = fields.get(b"payload", fields.get("payload"))
+        if isinstance(payload, bytes):
+            payload = payload.decode("utf-8", "replace")
+        try:
+            value = json.loads(payload)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(value, dict):
+            rows.append(value)
+    return rows
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HostNetMap/1.0"
+    server_version = "HostNetMap/2.0"
+
+    def _send_json(self, status: int, value: dict):
+        payload = json.dumps(value, separators=(",", ":")).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def do_POST(self):
+        if urlparse(self.path).path != "/api/events":
+            self.send_error(404); return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length <= 0 or length > self.server.max_body_bytes:
+                self._send_json(413, {"error": "request body is empty or too large"}); return
+            raw = self.rfile.read(length).decode("utf-8")
+            accepted = 0
+            for line in raw.splitlines():
+                if not line.strip(): continue
+                value = json.loads(line)
+                if not isinstance(value, dict): raise ValueError("each line must be a JSON object")
+                self.server.redis.xadd(self.server.stream, {"payload": json.dumps(value, separators=(",", ":"))}, maxlen=self.server.max_stream_length, approximate=True)
+                accepted += 1
+            self._send_json(202, {"accepted": accepted, "stream": self.server.stream})
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            self._send_json(400, {"error": str(exc)})
+        except Exception as exc:
+            self._send_json(503, {"error": f"redis write failed: {exc}"})
+
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/api/activity":
             query = parse_qs(parsed.query)
             try: limit = max(1, min(10000, int(query.get("limit", [self.server.limit])[0])))
             except ValueError: limit = self.server.limit
-            payload = json.dumps(aggregate(self.server.flow_path, self.server.ip_path, limit), separators=(",", ":")).encode()
-            self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Cache-Control", "no-store"); self.send_header("Content-Length", str(len(payload))); self.end_headers(); self.wfile.write(payload); return
+            try: self._send_json(200, aggregate(read_stream(self.server.redis, self.server.stream, limit)))
+            except Exception as exc: self._send_json(503, {"error": f"redis read failed: {exc}"})
+            return
         if parsed.path in ("/", "/index.html"):
             body = INDEX_HTML.replace("__HOME__", json.dumps([self.server.home_lat, self.server.home_lon])).encode()
             self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
         self.send_error(404)
+
     def log_message(self, format, *args):
         return
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--flow-log", type=Path, default=Path("network-flows.jsonl")); parser.add_argument("--ip-log", type=Path, default=Path("network-ips.jsonl")); parser.add_argument("--host", default="127.0.0.1"); parser.add_argument("--port", type=int, default=8080); parser.add_argument("--home-lat", type=float, default=64.1466); parser.add_argument("--home-lon", type=float, default=-21.9426); parser.add_argument("--limit", type=int, default=5000)
-    args = parser.parse_args(); server = ThreadingHTTPServer((args.host, args.port), Handler); server.flow_path=args.flow_log.resolve(); server.ip_path=args.ip_log.resolve(); server.home_lat=args.home_lat; server.home_lon=args.home_lon; server.limit=max(1,min(10000,args.limit)); print(f"Map server listening on http://{args.host}:{args.port}"); print(f"Flow log: {server.flow_path}"); server.serve_forever()
+    parser.add_argument("--redis-url", default="redis://127.0.0.1:6379/0", help="Redis URL (default: redis://127.0.0.1:6379/0)")
+    parser.add_argument("--redis-stream", default="host-net-monitor:events")
+    parser.add_argument("--redis-maxlen", type=int, default=100000)
+    parser.add_argument("--host", default="127.0.0.1"); parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--home-lat", type=float, default=64.1466); parser.add_argument("--home-lon", type=float, default=-21.9426); parser.add_argument("--limit", type=int, default=5000)
+    args = parser.parse_args()
+    if redis is None: parser.error(f"install map-server/requirements.txt ({REDIS_IMPORT_ERROR})")
+    client = redis.Redis.from_url(args.redis_url)
+    try: client.ping()
+    except Exception as exc: parser.error(f"cannot connect to Redis at {args.redis_url}: {exc}")
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    server.redis = client; server.stream = args.redis_stream; server.max_stream_length = max(100, args.redis_maxlen); server.home_lat = args.home_lat; server.home_lon = args.home_lon; server.limit = max(1, min(10000, args.limit)); server.max_body_bytes = 8 * 1024 * 1024
+    print(f"Map server listening on http://{args.host}:{args.port} (Redis stream {args.redis_stream})")
+    server.serve_forever()
+
 
 if __name__ == "__main__": main()

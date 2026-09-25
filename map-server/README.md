@@ -1,14 +1,31 @@
 # Host network map server
 
-`AttackMapServer.py` serves a live Leaflet map backed by the host monitor's `network-flows.jsonl` and `network-ips.jsonl` files. It reloads the JSONL files every five seconds, so it can be run beside the monitor.
+The map server uses a Redis stream as its only data source. It does not read the monitor's JSONL files. Start Redis, install the small Python dependency, and run:
 
 ```sh
-python3 map-server/AttackMapServer.py \
-  --flow-log ./network-flows.jsonl \
-  --ip-log ./network-ips.jsonl \
-  --port 8080
+python3 -m pip install -r map-server/requirements.txt
+python3 map-server/AttackMapServer.py --redis-url redis://127.0.0.1:6379/0
 ```
 
-Open <http://127.0.0.1:8080/>. The default view shades city activity by bandwidth. Select **Weighted lines** to draw lines from the configured host location to each city; line width and color are based on the selected city's bandwidth. The table shows city, IP, reputation (when present), bandwidth, and flow count.
+Post one or more JSONL records to the ingestion API:
 
-Use `--home-lat` and `--home-lon` to set the local host's map origin. The server has no Python dependencies; the browser loads Leaflet and OpenStreetMap tiles from their public CDNs.
+```sh
+curl -X POST -H 'Content-Type: application/x-ndjson' \
+  --data-binary @network-flows.jsonl \
+  http://127.0.0.1:8080/api/events
+```
+
+The API stores each JSON object in the configured Redis stream (`host-net-monitor:events` by default). The browser polls `/api/activity`, which aggregates the recent stream records by city and displays bandwidth, flow count, IP, and reputation. Activity shading is the default map view; weighted lines can be selected in the UI.
+
+## Experimental JSONL tailer
+
+This helper follows the monitor's files and posts new lines to Redis through the map server. It is deliberately separate from the server so production deployments can send events through another collector later.
+
+```sh
+python3 map-server/tail_jsonl.py \
+  --file network-flows.jsonl \
+  --file network-ips.jsonl \
+  --start-at-end
+```
+
+Use `--start-at-end` to ignore existing records. Without it, existing lines are forwarded first and then the files are followed.
