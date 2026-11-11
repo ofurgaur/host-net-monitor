@@ -67,7 +67,9 @@ def flow(row: dict, local_ip: str) -> dict | None:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", action="append", required=True, type=Path)
-    parser.add_argument("--bind", default="tcp://*:5556", help="PUB bind endpoint")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--connect", default="tcp://127.0.0.1:5556", help="ntopng collector endpoint (default: tcp://127.0.0.1:5556)")
+    mode.add_argument("--bind", help="optional PUB bind endpoint for compatibility")
     parser.add_argument("--interval", type=float, default=1.0, help="seconds between messages")
     parser.add_argument("--local-ip", required=True, help="IPv4 address used as flow source")
     parser.add_argument("--source-id", type=int, default=0)
@@ -80,8 +82,14 @@ def main():
 
     context = zmq.Context()
     sock = context.socket(zmq.PUB)
-    sock.bind(args.bind)
+    if args.bind:
+        sock.bind(args.bind)
+        endpoint = args.bind
+    else:
+        sock.connect(args.connect)
+        endpoint = args.connect
     time.sleep(max(0, args.startup_delay))
+    print(f"ZeroMQ PUB connected endpoint={endpoint}" if not args.bind else f"ZeroMQ PUB bound endpoint={endpoint}", flush=True)
     message_id = 0
     sent = skipped = filtered = 0
     cutoff = time.time() - args.since_hours * 3600 if args.since_hours else None
