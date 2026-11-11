@@ -21,3 +21,18 @@ ntopng -i "tcp://*:5556c"
 ```
 
 The exporter maps `flow_count` to NetFlow packet count and `flow_byte_sum` to octet count. IPv6 records are skipped because NetFlow v5 is IPv4-only; use an IPFIX exporter for mixed IPv4/IPv6 data. The JSONL format does not preserve the original local endpoint direction, so `--local-ip` is used as the source address for exported records.
+
+## Minimal ZeroMQ exporter
+
+This exporter publishes the ntopng flow message format over ZeroMQ PUB. Start it after ntopng has connected as a subscriber:
+
+```sh
+python3 -m pip install -r tools/ntopng/requirements.txt
+python3 tools/ntopng/zmq_export.py \
+  --input network-flows.jsonl \
+  --bind tcp://*:5556 \
+  --local-ip 192.168.1.20 \
+  --interval 1
+```
+
+Configure ntopng with the matching ZeroMQ interface, for example `-i tcp://127.0.0.1:5556`. The exporter sends one `flow` topic message per JSONL row, with a little-endian `zmq_msg_hdr_v1` header and a JSON array payload. IPv6 rows are skipped by this minimal IPv4 format.
