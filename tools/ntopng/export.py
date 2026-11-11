@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HEADER = struct.Struct("!HHIIIIHH")
-RECORD = struct.Struct("!4s4s4sHHIIIIHHBBHHBBH")
+RECORD = struct.Struct("!4s4s4sHHIIIIHHBBBBHHBBH")
 
 
 def epoch(value: str | None) -> float:
@@ -110,7 +110,7 @@ def main():
             stamp = epoch(row.get("timestamp"))
             first = max(0, int((stamp - start_wall) * 1000)) & 0xFFFFFFFF
             last = first
-            rows_payload.append(RECORD.pack(local, destination, b"\0\0\0\0", 0, 0, number(row, "flow_count", "flows"), number(row, "flow_byte_sum", "bytes_count", "bytes"), first, last, 0, int(row.get("external_port") or 0), 0, protocol(row.get("protocol")), 0, 0, 0, 0, 0))
+            rows_payload.append(RECORD.pack(local, destination, b"\0\0\0\0", 0, 0, number(row, "flow_count", "flows"), number(row, "flow_byte_sum", "bytes_count", "bytes"), first, last, 0, int(row.get("external_port") or 0), 0, 0, protocol(row.get("protocol")), 0, 0, 0, 0, 0, 0))
             previous_timestamp = stamp
         header = HEADER.pack(5, len(rows_payload), uptime, int(now), int((now % 1) * 1_000_000_000), sequence, 0, args.observation_domain & 0xFFFF)
         sock.sendto(header + b"".join(rows_payload), target)
