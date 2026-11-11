@@ -72,18 +72,24 @@ def main():
     parser.add_argument("--local-ip", required=True, help="IPv4 address used as flow source")
     parser.add_argument("--source-id", type=int, default=0)
     parser.add_argument("--startup-delay", type=float, default=1.0)
+    parser.add_argument("--since-hours", type=float, default=0,
+                        help="only export records newer than this many hours (default: all)")
     args = parser.parse_args()
-    if args.interval <= 0 or not 0 <= args.source_id <= 255:
-        parser.error("interval must be positive and source-id must be 0..255")
+    if args.interval <= 0 or args.since_hours < 0 or not 0 <= args.source_id <= 255:
+        parser.error("interval must be positive, since-hours non-negative, and source-id must be 0..255")
 
     context = zmq.Context()
     sock = context.socket(zmq.PUB)
     sock.bind(args.bind)
     time.sleep(max(0, args.startup_delay))
     message_id = 0
-    sent = skipped = 0
+    sent = skipped = filtered = 0
+    cutoff = time.time() - args.since_hours * 3600 if args.since_hours else None
     try:
         for row in read_rows(args.input):
+            if cutoff is not None and timestamp(row.get("timestamp")) < cutoff:
+                filtered += 1
+                continue
             value = flow(row, args.local_ip)
             if value is None:
                 skipped += 1
@@ -93,12 +99,12 @@ def main():
             sock.send_multipart([header, payload])
             message_id = (message_id + 1) & 0xFFFFFFFF
             sent += 1
-            print(f"sent flow={sent} message_id={message_id - 1} bytes={value['OUT_BYTES']} skipped={skipped}", flush=True)
+            print(f"sent flow={sent} message_id={message_id - 1} timestamp={value['FIRST_SWITCHED']} bytes={value['OUT_BYTES']} skipped={skipped} filtered={filtered}", flush=True)
             time.sleep(args.interval)
     finally:
         sock.close(linger=0)
         context.term()
-    print(f"export complete sent={sent} skipped={skipped}", flush=True)
+    print(f"export complete sent={sent} skipped={skipped} filtered={filtered}", flush=True)
 
 
 if __name__ == "__main__":

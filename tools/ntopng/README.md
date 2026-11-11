@@ -32,7 +32,10 @@ python3 tools/ntopng/zmq_export.py \
   --input network-flows.jsonl \
   --bind tcp://*:5556 \
   --local-ip 192.168.1.20 \
-  --interval 1
+  --interval 1 \
+  --since-hours 24
 ```
 
 Configure ntopng with the matching ZeroMQ interface, for example `-i tcp://127.0.0.1:5556`. The exporter sends one `flow` topic message per JSONL row, with a little-endian `zmq_msg_hdr_v1` header and a JSON array payload. IPv6 rows are skipped by this minimal IPv4 format.
+
+`--since-hours 24` replays only records from the last day. The original JSONL timestamp is retained in `FIRST_SWITCHED` and `LAST_SWITCHED`; `--interval` controls how quickly records are delivered.
